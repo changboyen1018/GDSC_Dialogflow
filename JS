@@ -1,0 +1,44 @@
+'use strict';
+
+const {
+  dialogflow,
+  Image
+} = require('actions-on-google');
+
+const functions = require('firebase-functions');
+const axios = require('axios');
+const app = dialogflow({debug: true});
+
+const api_key = "<YOUR_API_KEY_HERE>";
+const region = "<YOUR_REGION>";
+
+function getMeters(i) {
+     return i*1609.344;
+}
+
+app.intent('get_restaurant', async (conv, {location, proximity, cuisine}) => {
+      const user_location = location["street-address"];
+      const user_proximity = proximity.unit === "mi" ? getMeters(proximity.amount) : proximity.amount * 1000;
+      
+      const geo_code = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(user_location)}&region=${region}&key=${api_key}`;
+
+      const response = await axios.get(geo_code);
+      const places_information = response.data.results[0].geometry.location;
+      const [lat, long] = [places_information.lat, places_information.lng];
+
+      const place_search = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(cuisine)}&inputtype=textquery&fields=photos,formatted_address,name,opening_hours,rating&locationbias=circle:${user_proximity}@${lat},${long}&key=${api_key}`;
+
+      const placeResponse = await axios.get(place_search);
+      const { photo_reference, formatted_address, name } = placeResponse.data.candidates[0].photos[0];
+      
+      const photo_request = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photo_reference}&key=${api_key}`;
+
+      conv.ask('Fetching your request...');
+      conv.ask(new Image({
+                url: photo_request,
+                alt: 'Restaurant photo',
+              }));
+      conv.close(`Okay, the restaurant name is ${name} and the address is ${formatted_address}. The following photo uploaded from a Google Places user might whet your appetite!`);
+});
+
+exports.get_restaurant = functions.https.onRequest(app);
